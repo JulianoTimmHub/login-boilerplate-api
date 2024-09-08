@@ -1,7 +1,8 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateUserDto } from './dto/create-user.dto';
-import { hash } from 'bcrypt';
+import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
+import { hash } from 'argon2';
+import { User } from '@prisma/client';
 
 @Injectable()
 export class UserService {
@@ -22,7 +23,7 @@ export class UserService {
       throw new ConflictException("Usuário já está registrado!");
     }
 
-    const hashPassword = await hash(password, 10);
+    const hashPassword = await hash(password);
     const createdUser = await this.prismaService.user.create({
       data: {
         email,
@@ -34,6 +35,21 @@ export class UserService {
     console.log("User created: ", {createdUser})
 
     return !!createdUser;
+  }
+
+  async updateUser(
+    updateUserDto: UpdateUserDto,
+  ): Promise<User> {
+    const { email, refreshToken } = updateUserDto;
+
+    return this.prismaService.user.update({
+      where: {
+        email
+      },
+      data: {
+        refreshToken: refreshToken
+      }
+    });
   }
 
 }

@@ -6,13 +6,15 @@ import { PrismaModule } from './modules/prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { appConfig } from './config/app.config';
+import { TokenModule } from './modules/token/token.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot(appConfig),
     PrismaModule, 
     UserModule, 
-    AuthModule
+    AuthModule, 
+    TokenModule
   ],
   controllers: [AppController],
   providers: [AppService],
