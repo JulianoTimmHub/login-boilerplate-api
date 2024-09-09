@@ -1,17 +1,21 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { TokenService } from './token.service';
 import { RefreshTokenDto } from './dto/token.dto';
 import { TokenResponse } from 'src/types/token.type';
+import { RefreshTokenGuard } from './guards/refreshToken.guard';
+import { Request, Response } from 'express';
 
 @Controller('token')
 export class TokenController {
   constructor( private readonly tokenService: TokenService) { }
 
-  @Post('/refresh')
+  @UseGuards(RefreshTokenGuard)
+  @Get('refresh')
   async refreshToken (
-    @Body() refreshTokenDto: RefreshTokenDto
+    @Req() req,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<TokenResponse> {
-    return this.tokenService.refreshToken(refreshTokenDto);
+    return this.tokenService.refreshToken(req, res);
   }
 
 }

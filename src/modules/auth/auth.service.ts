@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { verify, hash } from 'argon2';
+import { compare, hash } from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { User } from '@prisma/client';
 import { SignInDto } from './dto/sign-in.dto';
@@ -7,6 +7,7 @@ import { SignInResponse } from 'src/types/auth.type';
 import { RecoverPasswordDto } from './dto/recover-password.dto';
 import { TokenService } from '../token/token.service';
 import { CreateTokenDto } from '../token/dto/token.dto';
+import { Response } from 'express';
 
 @Injectable()
 export class AuthService {
@@ -16,7 +17,8 @@ export class AuthService {
   ) {}
 
   async signIn (
-    signInDto: SignInDto
+    signInDto: SignInDto,
+    res: Response
   ): Promise<SignInResponse> {
     const { email, password } = signInDto;
 
@@ -27,12 +29,14 @@ export class AuthService {
     })
 
     if (!user) {
+      console.log("Usuário não encontrado ao realizar login!")
       throw new NotFoundException("Usuário não encontrado!");
     }
 
-    const hasUser = await verify(password, user.hashedPassword);
+    const correctPassword = await compare(password, user.hashedPassword);
 
-    if (!hasUser) {
+    if (!correctPassword) {
+      console.log("Senha do usuario incorreta!")
       throw new UnauthorizedException('Credenciais incorretas!');
     }
 
@@ -43,13 +47,25 @@ export class AuthService {
 
     const tokens = await this.tokenService.generateTokens(createTokenDto);
 
-    console.log("Tokens generated: ", tokens.accessToken, " | ", tokens.refreshToken)
+    await this.tokenService.updateRefreshToken(email, tokens.refreshToken);
 
+    const cookiesTokens = {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken
+    }
+
+    res.cookie('auth-tokens', cookiesTokens, {
+      secure: true, // Para enviar o cookie apenas em requisição HTTPS
+      httpOnly: true,
+      sameSite: 'strict' // Proteção CSRF
+    });
+
+    console.log("accessToken generated: ", {accessToken: tokens.accessToken});
+    console.log("refreshToken generated: ", {refreshToken: tokens.refreshToken});
     console.log("User logged: ", user)
 
     return {
-      username: user.username,
-      tokens
+      username: user.username
     }
   }
 
@@ -72,7 +88,7 @@ export class AuthService {
       throw new NotFoundException("Usuário não encontrado!")
     }
 
-    const hashNewPassword = await hash(confirmNewPassword);
+    const hashNewPassword = await hash(confirmNewPassword, 10);
 
     const newUserPassword: User = await this.prismaService.user.update({
       where: {

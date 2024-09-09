@@ -1,11 +1,12 @@
-import { ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTokenDto, RefreshTokenDto } from './dto/token.dto';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { hash, verify } from 'argon2';
+import { hash, compare } from 'bcrypt';
 import { UserService } from '../user/user.service';
 import { TokenResponse, UpdateRefreshToken } from 'src/types/token.type';
+import { Request, Response } from 'express';
 
 @Injectable()
 export class TokenService {
@@ -18,26 +19,26 @@ export class TokenService {
 
   async generateTokens(createTokenDto: CreateTokenDto) {
     const { email, username } = createTokenDto;
-    
+
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(
         {
-          sub: email,
+          email,
           username,
         },
         {
           secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
-          expiresIn: '1m',
+          expiresIn: '30s',
         },
       ),
       this.jwtService.signAsync(
         {
-          sub: email,
+          email,
           username,
         },
         {
           secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-          expiresIn: '3m',
+          expiresIn: '1m',
         },
       ),
     ]);
@@ -49,47 +50,39 @@ export class TokenService {
   }
 
   async refreshToken(
-    refreshTokenDto: RefreshTokenDto
+    req: Request,
+    res: Response
   ): Promise<TokenResponse> {
-    const { email, username, refreshToken } = refreshTokenDto;
+    const user = req.user;
 
-    const user = await this.prismaService.user.findUnique({
-      where: {
-        email
-      }
-    });
+    // const refreshTokenMatches = await compare(
+    //   refreshToken,
+    //   user.refreshToken
+    // );
 
-    if (!user) {
-      throw new ConflictException("Usuário não encontrado!");
-    }
-
-    const refreshTokenMatches = await verify(
-      user.refreshToken,
-      refreshToken,
-    );
-
-    if (!refreshTokenMatches) 
-      throw new ForbiddenException('Acesso negado!');
+    // if (!refreshTokenMatches)
+    //   throw new ForbiddenException('Acesso negado!');
 
     const createTokenDto: CreateTokenDto = {
-      email: email,
-      username: username
+      email: user['email'],
+      username: user['username']
     }
 
     const tokens = await this.generateTokens(createTokenDto);
 
-    await this.updateRefreshToken(email, tokens.refreshToken);
+    await this.updateRefreshToken(user['email'], tokens.refreshToken);
 
-    console.log("Tokens refreshed: ", tokens.accessToken, " | ", tokens.refreshToken);
+    console.log("accessToken refreshed: ", { accessToken: tokens.accessToken });
+    console.log("refreshToken refreshed: ", { refreshToken: tokens.refreshToken });
 
     return tokens;
   }
 
   async updateRefreshToken(
-    email: string, 
+    email: string,
     refreshToken: string
   ) {
-    const hashedRefreshToken = await hash(refreshToken);
+    const hashedRefreshToken = await hash(refreshToken, 10);
 
     const newRefreshToken: UpdateRefreshToken = {
       email: email,
@@ -97,6 +90,27 @@ export class TokenService {
     }
 
     await this.userService.updateUser(newRefreshToken);
+  }
+
+  async validateRefreshToken(
+    refreshToken: string
+  ) {
+    try {
+      const payload = this.jwtService.verify(refreshToken, {
+        secret: process.env.JWT_REFRESH_SECRET,
+      });
+
+      return payload;
+    } catch (error) {
+      if (error.name === 'TokenExpiredError')
+        throw new UnauthorizedException('Refresh token expired');
+
+      else if (error.name === 'JsonWebTokenError')
+        throw new UnauthorizedException('Invalid refresh token');
+
+      else
+        throw new UnauthorizedException('error to read refreshToken');
+    }
   }
 
 }
