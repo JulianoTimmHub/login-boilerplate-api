@@ -1,19 +1,11 @@
 import { IsNotEmpty, IsString, ValidateNested } from "class-validator";
 import { ApplicationDto } from "src/modules/user/dto/application.dto";
 
-export class RecoverPasswordDto {
+export class LogoutDto {
   @IsString()
   @IsNotEmpty()
   readonly email: string;
 
-  @IsString()
-  @IsNotEmpty()
-  readonly newPassword: string;
-
-  @IsString()
-  @IsNotEmpty()
-  readonly confirmNewPassword: string;
-
   @ValidateNested()
-  readonly application?: ApplicationDto;
+  readonly application: ApplicationDto;
 }
