@@ -1,9 +1,16 @@
 export type TokenResponse = {
-  accessToken: string;
-  refreshToken: string;
+  tokensHasValid: boolean;
+  userPayload?: any;
 }
 
 export type UpdateRefreshToken = {
   email: string;
-  refreshToken: string;
+  application: any;
+  refreshToken: string | null;
+}
+
+export type RefreshTokenDecoded = {
+  email: string;
+  application: any;
+  refreshToken: string | null;
 }

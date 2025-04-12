@@ -1,29 +1,47 @@
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Request } from 'express';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { TokenService } from '../token.service';
-import { PrismaService } from 'src/modules/prisma/prisma.service';
+import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
-export class RefreshTokenStrategy extends PassportStrategy(
-  Strategy,
-  'jwt-refresh',
-) {
+export class RefreshTokenStrategy extends PassportStrategy(Strategy, 'jwt-refresh') {
   constructor(
     private tokenService: TokenService,
-    private prismaService: PrismaService
+    private jwtService: JwtService
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromExtractors([(request: Request) => {
-        let data = request?.cookies["auth-tokens"];
+      jwtFromRequest: ExtractJwt.fromExtractors([(req: Request) => {
+        let data = req?.cookies["tokens"];
 
-        if (!data) {
-          console.log("tokens inválidos!")
-          return null;
+        const res = req.res;
+
+        if (!res)
+          throw new UnauthorizedException('Response object not available');
+
+        if (!data)
+          throw new UnauthorizedException({ message: 'Refresh token not found', tokensHasValid: false });
+
+        try {
+          const verifyRefreshToken = this.jwtService.verify(
+            data.refreshToken,
+            { secret: process.env.JWT_REFRESH_SECRET }
+          );
+
+          if (verifyRefreshToken)
+            return data.refreshToken;
+
+        } catch (refreshTokenError) {
+          this.tokenService.invalidateTokens(res);
+
+          throw new UnauthorizedException({
+            message: 'Refresh token expired',
+            tokensHasValid: false
+          });
         }
 
-        return data.refreshToken
+        return data.refreshToken;
       }]),
       secretOrKey: process.env.JWT_REFRESH_SECRET,
       passReqToCallback: true,
@@ -31,34 +49,21 @@ export class RefreshTokenStrategy extends PassportStrategy(
   }
 
   async validate(req: Request, payload: any) {
-    console.log({payload})
+    try {
+      const res = req.res;
 
-    if (!payload) {
-      console.log("refreshToken inválido")
-      throw new BadRequestException('refreshToken inválido!');
+      if (!res)
+        throw new UnauthorizedException('Response object not available');
+
+      const validationResult = await this.tokenService.validateToken(req, res);
+
+      if (!validationResult.tokensHasValid)
+        throw new UnauthorizedException({ message: 'Invalid or expired tokens', tokensHasValid: false });
+
+      return validationResult.userPayload;
+    } catch (error) {
+      console.error('Error when validate refreshToken: ', error);
+      throw new UnauthorizedException({ message: error.message || 'Authentication failed', tokensHasValid: false });
     }
-
-    let data = req?.cookies["auth-tokens"];
-
-    console.log({data})
-
-    if (!data?.refreshToken) {
-      console.log("refreshToken inválido ou inexistente!")
-      throw new BadRequestException('refreshToken inválido ou inexistente!');
-    }
-
-    let payloadUser = await this.tokenService.validateRefreshToken(data.refreshToken);
-
-    const user = await this.prismaService.user.findUnique({
-      where: {
-        email: payloadUser.email
-      },
-    });
-
-    if (!user)
-      throw new NotFoundException("Usuário não encontrado!");
-
-    return payloadUser;
-    
   }
 }
