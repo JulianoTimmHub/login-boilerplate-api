@@ -6,45 +6,77 @@ import { User } from '@prisma/client';
 
 @Injectable()
 export class UserService {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(private readonly prismaService: PrismaService) { }
 
-  async createUser(
-    createUserDto: CreateUserDto
-  ): Promise<Boolean> {
-    const { username, email, password } = createUserDto;
+  async createUser(createUserDto: CreateUserDto): Promise<Boolean> {
+    const { username, email, password, application } = createUserDto;
 
-    const user = await this.prismaService.user.findUnique({
+    console.info({ application });
+
+    let existingApplication = null;
+    if (application) {
+      existingApplication = await this.prismaService.application.findUnique({
+        where: {
+          name: application.name
+        }
+      });
+
+      if (!existingApplication && application.name) {
+        existingApplication = await this.prismaService.application.create({
+          data: {
+            name: application.name,
+            description: application.description ?? null
+          }
+        });
+      }
+    }
+
+    const existingUser = await this.prismaService.user.findFirst({
       where: {
-        email
+        email,
+        application_id: existingApplication ? existingApplication.id : null
       }
     });
 
-    if (user) {
-      throw new ConflictException("Usuário já está registrado!");
-    }
+    if (existingUser)
+      throw new ConflictException("User is already registered!");
+
+    let applicationData = undefined;
+    if (existingApplication)
+      applicationData = { connect: { id: existingApplication.id } };
 
     const hashPassword = await hash(password, 10);
     const createdUser = await this.prismaService.user.create({
       data: {
         email,
         username,
-        hashedPassword: hashPassword
-      }      
+        hashedPassword: hashPassword,
+        application: applicationData
+      }
     });
 
-    console.log("User created: ", {createdUser})
+    console.info("User created: ", { createdUser });
 
     return !!createdUser;
   }
 
   async updateUser(
-    updateUserDto: UpdateUserDto,
+    updateUserDto: UpdateUserDto
   ): Promise<User> {
-    const { email, refreshToken } = updateUserDto;
+    const { email, refreshToken, application } = updateUserDto;
+
+    const existingApplication = await this.prismaService.application.findUnique({
+      where: {
+        name: application.name
+      }
+    });
 
     return this.prismaService.user.update({
       where: {
-        email
+        email_application_id: {
+          email,
+          application_id: existingApplication.id
+        }
       },
       data: {
         refreshToken: refreshToken

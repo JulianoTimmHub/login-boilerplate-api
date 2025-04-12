@@ -1,4 +1,5 @@
-import { IsString, IsNotEmpty } from "class-validator";
+import { IsString, IsNotEmpty, ValidateNested, } from "class-validator";
+import { ApplicationDto } from "./application.dto";
 
 export class CreateUserDto {
   @IsString()
@@ -12,6 +13,9 @@ export class CreateUserDto {
   @IsString()
   @IsNotEmpty()
   readonly email: string;
+
+  @ValidateNested()
+  readonly application?: ApplicationDto;
 }
 
 export class UpdateUserDto {
@@ -30,4 +34,7 @@ export class UpdateUserDto {
   @IsString()
   @IsNotEmpty()
   readonly email: string;
+
+  @ValidateNested()
+  readonly application?: ApplicationDto;
 }
