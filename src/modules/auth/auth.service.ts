@@ -7,99 +7,141 @@ import { SignInResponse } from 'src/types/auth.type';
 import { RecoverPasswordDto } from './dto/recover-password.dto';
 import { TokenService } from '../token/token.service';
 import { CreateTokenDto } from '../token/dto/token.dto';
-import { Response } from 'express';
+import { Response, Request } from 'express';
+import { JwtService } from '@nestjs/jwt';
+import { UserService } from '../user/user.service';
+import { UpdateRefreshToken } from 'src/types/token.type';
+import { LogoutDto } from './dto/logout.dto';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prismaService: PrismaService,
+    private readonly jwtService: JwtService,
+    private readonly userService: UserService,
     private readonly tokenService: TokenService,
-  ) {}
+  ) { }
 
-  async signIn (
+  async signIn(
     signInDto: SignInDto,
+    req: Request,
     res: Response
   ): Promise<SignInResponse> {
-    const { email, password } = signInDto;
+    const { email, password, application } = signInDto;
 
-    const user: User = await this.prismaService.user.findUnique({
+    const existingApplication = await this.prismaService.application.findUnique({
       where: {
-        email: email
+        name: application.name
+      }
+    });
+
+    const user: User = await this.prismaService.user.findFirst({
+      where: {
+        email,
+        application_id: existingApplication ? existingApplication.id : null
       }
     })
 
     if (!user) {
-      console.log("Usuário não encontrado ao realizar login!")
-      throw new NotFoundException("Usuário não encontrado!");
+      console.error("User not found when loggin in!")
+      throw new NotFoundException("User not found!");
     }
 
     const correctPassword = await compare(password, user.hashedPassword);
 
     if (!correctPassword) {
-      console.log("Senha do usuario incorreta!")
-      throw new UnauthorizedException('Credenciais incorretas!');
+      console.error("User password incorrect!")
+      throw new UnauthorizedException('Incorrect credentials!');
     }
 
     const createTokenDto: CreateTokenDto = {
       email: user.email,
       username: user.username,
-    }; 
+      application: existingApplication
+    };
 
     const tokens = await this.tokenService.generateTokens(createTokenDto);
 
-    await this.tokenService.updateRefreshToken(email, tokens.refreshToken);
+    const updateRefreshToken: UpdateRefreshToken = {
+      email: email,
+      application: existingApplication,
+      refreshToken: tokens.refreshToken
+    }
+
+    await this.tokenService.updateRefreshToken(updateRefreshToken);
 
     const cookiesTokens = {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken
     }
 
-    res.cookie('auth-tokens', cookiesTokens, {
-      secure: true, // Para enviar o cookie apenas em requisição HTTPS
-      httpOnly: true,
-      sameSite: 'strict' // Proteção CSRF
-    });
+    await this.tokenService.saveTokensInCookies(res, cookiesTokens);
 
-    console.log("accessToken generated: ", {accessToken: tokens.accessToken});
-    console.log("refreshToken generated: ", {refreshToken: tokens.refreshToken});
-    console.log("User logged: ", user)
+    console.info("User logged: ", user)
 
     return {
       username: user.username
     }
   }
 
-  async recoverPassword (
-    recoverPasswordDto: RecoverPasswordDto
-  ): Promise<Boolean> {
-    const { email, newPassword, confirmNewPassword } = recoverPasswordDto;
+  async logout(
+    req: Request,
+    res: Response,
+    logoutDto: LogoutDto
+  ): Promise<void> {
+    let dataUserTokens = req?.cookies["tokens"];
+    const decodedRefreshToken = this.jwtService.decode(dataUserTokens?.refreshToken);
 
-    if (newPassword !== confirmNewPassword) {
-      throw new BadRequestException("As senhas devem ser iguais!");
+    const updateRefreshToken: UpdateRefreshToken = {
+      email: decodedRefreshToken?.email ?? logoutDto?.email,
+      application: decodedRefreshToken?.application ?? logoutDto?.application,
+      refreshToken: null
     }
 
-    const user: User = await this.prismaService.user.findUnique({
+    await this.tokenService.invalidateTokens(res);
+
+    await this.userService.updateUser(updateRefreshToken);
+  }
+
+  async recoverPassword(
+    recoverPasswordDto: RecoverPasswordDto
+  ): Promise<Boolean> {
+    const { email, newPassword, confirmNewPassword, application } = recoverPasswordDto;
+
+    if (newPassword !== confirmNewPassword)
+      throw new BadRequestException("The passwords must be equals!");
+
+    const existingApplication = await this.prismaService.application.findUnique({
       where: {
-        email,
+        name: application.name
       }
     });
 
-    if (!user) {
-      throw new NotFoundException("Usuário não encontrado!")
-    }
+    const user: User = await this.prismaService.user.findFirst({
+      where: {
+        email,
+        application_id: existingApplication ? existingApplication.id : null
+      }
+    });
+
+    if (!user)
+      throw new NotFoundException("User not found!")
 
     const hashNewPassword = await hash(confirmNewPassword, 10);
 
     const newUserPassword: User = await this.prismaService.user.update({
       where: {
-        email
+        email_application_id: {
+          email,
+          application_id: existingApplication.id
+        }
       },
       data: {
         hashedPassword: hashNewPassword
       },
     });
 
-    console.log("User changed: ", newUserPassword)
+    console.info("User changed: ", newUserPassword)
 
     return !!newUserPassword;
   }
