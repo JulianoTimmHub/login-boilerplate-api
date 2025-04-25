@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTokenDto } from './dto/token.dto';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { hash } from 'bcrypt';
+import { hash } from 'bcryptjs';
 import { UserService } from '../user/user.service';
 import { TokenResponse, UpdateRefreshToken } from 'src/types/token.type';
 import { Request, Response } from 'express';

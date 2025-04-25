@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { compare, hash } from 'bcrypt';
+import { compare, hash } from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { User } from '@prisma/client';
 import { SignInDto } from './dto/sign-in.dto';
